@@ -33,8 +33,8 @@
 #undef SCULL_NAME
 #define SCULL_NAME "scull"
 
-#   define kdebug(fmt, args...) printk(KERN_DEBUG "scull: " fmt, ## args )
-//#   define kdebug(fmt, args...)
+#   define kkdebug(fmt,args...) printk( KERN_DEBUG "scull: " fmt,##args )
+//#   define printk(fmt, args...)
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Jiao Shang Wei");
@@ -72,7 +72,7 @@ static int scull_free(struct scull_device *device)
     struct scull_qset *temp=NULL;
     int i;
    
-    kdebug("%s:%s\n",__FUNCTION__,__TIME__);
+    printk("%s:%s\n",__FUNCTION__,__TIME__);
     while( device->s_data )
     {
         temp = device->s_data;
@@ -96,17 +96,17 @@ static struct scull_qset * scull_alloc(struct scull_device *device, int n)
    int i;
    struct scull_qset *prev,*next;
 
-    kdebug("%s:%s\n",__FUNCTION__,__TIME__);
+    printk("%s:%s\n",__FUNCTION__,__TIME__);
    prev = next = device->s_data;
    
-   for(i=0; i<n; i++)
+   for(i=0; i<=n; i++)
    {
         if(!next)
         {
             next = (struct scull_qset*)kmalloc(sizeof(struct scull_qset),GFP_KERNEL);
             if(!next)
             {
-                kdebug("%s:%d: ERROR!\n",__FUNCTION__,__LINE__);
+                printk("%s:%d: ERROR!\n",__FUNCTION__,__LINE__);
                 return NULL;
             }
             memset(next,0,sizeof(struct scull_qset));
@@ -115,7 +115,7 @@ static struct scull_qset * scull_alloc(struct scull_device *device, int n)
             if(!next)
             {
                   
-                kdebug("%s:%d: ERROR!\n",__FUNCTION__,__LINE__);
+                printk("%s:%d: ERROR!\n",__FUNCTION__,__LINE__);
                 return NULL;
             }
             memset(next->data, 0, sizeof(char *)*device->s_qset);
@@ -142,10 +142,10 @@ static int scull_device_open(struct inode *inode, struct file *filp)
     int ret =0;
 
     struct scull_device *device = container_of(inode->i_cdev,struct scull_device,s_cdev);
-    kdebug("%s:%s\n",__FUNCTION__,__TIME__);
+    printk("%s:%s\n",__FUNCTION__,__TIME__);
     filp->private_data= (void *)device;
 
-    if( (filp->f_mode & O_ACCMODE) == O_WRONLY)
+    if( (filp->f_flags & O_ACCMODE) == O_WRONLY)
     {
         ret= scull_free(device);
     }
@@ -166,7 +166,7 @@ static ssize_t scull_device_read(struct file *filp, char *buffer, size_t count, 
     loff_t num, offset, qnum, qoffset; 
     size_t temp;
 
-    kdebug("%s:%s\n",__FUNCTION__,__TIME__);
+    printk("%s:%s\n",__FUNCTION__,__TIME__);
     if( *pos > device->s_size )
         return 0;
 
@@ -185,7 +185,7 @@ static ssize_t scull_device_read(struct file *filp, char *buffer, size_t count, 
 
     if(!qset || !qset->data || !qset->data[qnum] )
     {
-        kdebug("%s:%d: ERROR!\n",__FUNCTION__,__LINE__);
+        printk("%s:%d: ERROR!\n",__FUNCTION__,__LINE__);
         return -EIO;
     }
    
@@ -207,7 +207,7 @@ static ssize_t scull_device_write(struct file *filp, const char __user *buffer, 
     size_t temp;
     loff_t num, offset,qnum,qoffset; 
 
-    kdebug("%s:%s\n",__FUNCTION__,__TIME__);
+    printk("%s:%s\n",__FUNCTION__,__TIME__);
     num = *pos / (device->s_qset*device->s_quantum);
     offset = *pos % (device->s_qset * device->s_quantum);
     qnum = offset / device->s_quantum;
@@ -217,7 +217,7 @@ static ssize_t scull_device_write(struct file *filp, const char __user *buffer, 
 
     if( !qset || !qset->data)
     {
-        kdebug("%s:%d: ERROR!\n",__FUNCTION__,__LINE__);
+        printk("%s:%d: ERROR!\n",__FUNCTION__,__LINE__);
         return -EIO;
     }
     if(!qset->data[qnum])
@@ -226,7 +226,7 @@ static ssize_t scull_device_write(struct file *filp, const char __user *buffer, 
         if(!qset->data[qnum])
         {
 
-            kdebug("%s:%d: ERROR!\n",__FUNCTION__,__LINE__);
+            printk("%s:%d: ERROR!\n",__FUNCTION__,__LINE__);
             return -ENOMEM;
         } 
         memset(qset->data[qnum],0,device->s_quantum);
@@ -252,7 +252,7 @@ static loff_t scull_device_seek(struct file *filp, loff_t pos, int where)
 {
     struct scull_device *device = (struct scull_device *)(filp->private_data);
 
-    kdebug("%s:%s\n",__FUNCTION__,__TIME__);
+    printk("%s:%s\n",__FUNCTION__,__TIME__);
     switch (where)
     {
     case SEEK_SET:
@@ -287,7 +287,7 @@ static __init int scull_init(void)
     int ret =0,i;
     dev_t temp_dev;
 
-    kdebug("%s:%s\n",__FUNCTION__,__TIME__);
+    kkdebug("%s:%s\n",__FUNCTION__,__TIME__);
     if(scull_major)
     {
         temp_dev = MKDEV(scull_major, 0);
@@ -329,7 +329,7 @@ static __init int scull_init(void)
 
 RELEASE_CDEV: 
     
-    kdebug("%s:%d: ERROR!\n",__FUNCTION__,__LINE__);
+    printk("%s:%d: ERROR!\n",__FUNCTION__,__LINE__);
     for (i = 0; i<scull_devs; i++)
     {
         cdev_del( &(scull_devices[i].s_cdev));
@@ -337,7 +337,7 @@ RELEASE_CDEV:
 
 RELEASE_CHRDEV:
 
-    kdebug("%s:%d: ERROR!\n",__FUNCTION__,__LINE__);
+    printk("%s:%d: ERROR!\n",__FUNCTION__,__LINE__);
     unregister_chrdev_region(MKDEV(scull_major,0),scull_devs);
     return -EIO;
 }
@@ -346,7 +346,7 @@ static void __exit scull_exit(void)
 {
     int i=0;
     
-    kdebug("%s:%s\n",__FUNCTION__,__TIME__);
+    printk("%s:%s\n",__FUNCTION__,__TIME__);
     for( i=0; i<scull_devs; i++)
     {
         cdev_del(&(scull_devices[i].s_cdev)); 
