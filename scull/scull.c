@@ -11,6 +11,8 @@
 #include <linux/kdev_t.h>
 #include <linux/moduleparam.h>
 #include <linux/cdev.h>
+#include <linux/fcntl.h>
+
 
 #ifndef SCULL_MAJOR
 #   define SCULL_MAJOR 0
@@ -31,11 +33,8 @@
 #undef SCULL_NAME
 #define SCULL_NAME "scull"
 
-#ifdef __KERNEL__
 #   define kdebug(fmt, args...) printk(KERN_DEBUG "scull: " fmt, ## args )
-#else
-#   define kdebug(fmt, args...)
-#endif
+//#   define kdebug(fmt, args...)
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Jiao Shang Wei");
@@ -53,7 +52,7 @@ module_param(scull_quantum,uint, 0644);
 module_param(scull_qset, uint, 0644);
 
 struct scull_qset{
-        char *data;
+        void  **data;
         struct scull_qset *next;
 };
 
@@ -66,81 +65,91 @@ struct scull_device{
 };
 
 struct scull_device *scull_devices = NULL;
-dev_t scull_dev_n;
 
 
 static int scull_free(struct scull_device *device)
 {
     struct scull_qset *temp=NULL;
+    int i;
    
+    kdebug("%s:%s\n",__FUNCTION__,__TIME__);
     while( device->s_data )
     {
         temp = device->s_data;
         device->s_data = temp->next;
 
+       for(i=0; i<device->s_qset; i++)
+       {
+           kfree( temp->data[i]);
+       }
+
         kfree(temp->data);
         kfree(temp);
     }
 
+    device->s_size = 0;
     return 0;
 }
 
-static int scull_alloc(struct scull_device *device)
+static struct scull_qset * scull_alloc(struct scull_device *device, int n)
 {
    int i;
-   struct scull_qset *temp= NULL;
+   struct scull_qset *prev,*next;
+
+    kdebug("%s:%s\n",__FUNCTION__,__TIME__);
+   prev = next = device->s_data;
    
-   if(!device)
-       return 0;
-
-   if(device->s_data)
-       return 0;
-
-
-   for(i=0; i<scull_qset; i++)
+   for(i=0; i<n; i++)
    {
-        temp = (struct scull_qset*)kmalloc(sizeof(struct scull_qset),GFP_KERNEL);
-        if(!temp)
-            goto FREE;
-
-        temp->next = NULL;
-        temp->data = (char *)kmalloc(scull_quantum, GFP_KERNEL);
-        if(!temp->data)
-            goto FREE;
-
-        memset(temp->data,0, scull_quantum);
-
-        if(!device->s_data)
+        if(!next)
         {
-            device->s_data = temp;
+            next = (struct scull_qset*)kmalloc(sizeof(struct scull_qset),GFP_KERNEL);
+            if(!next)
+            {
+                kdebug("%s:%d: ERROR!\n",__FUNCTION__,__LINE__);
+                return NULL;
+            }
+            memset(next,0,sizeof(struct scull_qset));
+
+            next->data = kmalloc( sizeof(char *)*device->s_qset,GFP_KERNEL);
+            if(!next)
+            {
+                  
+                kdebug("%s:%d: ERROR!\n",__FUNCTION__,__LINE__);
+                return NULL;
+            }
+            memset(next->data, 0, sizeof(char *)*device->s_qset);
+
+            if(!device->s_data)
+            {
+                device->s_data = next;
+            }
+            prev = next;
+            next = next->next;
         }
         else
         {
-            temp->next = device->s_data;
-            device->s_data = temp;
+            prev=next;
+            next=next->next;
         }
-   }
-   return 0;
+    }
 
-FREE:
-    scull_free(device);
-    return -EIO;
+   return prev;
 }
-
 
 static int scull_device_open(struct inode *inode, struct file *filp)
 {
     int ret =0;
 
     struct scull_device *device = container_of(inode->i_cdev,struct scull_device,s_cdev);
-    if(!device->s_data)
+    kdebug("%s:%s\n",__FUNCTION__,__TIME__);
+    filp->private_data= (void *)device;
+
+    if( (filp->f_mode & O_ACCMODE) == O_WRONLY)
     {
-        ret = scull_alloc(device);
-        if(ret)
-             return ret;
+        ret= scull_free(device);
     }
 
-    filp->private_data= (void *)device;
     return 0;
 }
 
@@ -153,11 +162,11 @@ static ssize_t scull_device_read(struct file *filp, char *buffer, size_t count, 
 {
      
     struct scull_device *device = (struct scull_device *)filp->private_data;
-    struct scull_qset *qset = device->s_data;
-    int i;
-    loff_t num, first; 
+    struct scull_qset *qset;
+    loff_t num, offset, qnum, qoffset; 
     size_t temp;
 
+    kdebug("%s:%s\n",__FUNCTION__,__TIME__);
     if( *pos > device->s_size )
         return 0;
 
@@ -166,18 +175,24 @@ static ssize_t scull_device_read(struct file *filp, char *buffer, size_t count, 
         count = device->s_size - *pos;
     }
 
-    num = *pos / device->s_quantum;
-    first = *pos % device->s_quantum;
+    num = *pos / (device->s_quantum*device->s_qset);
+    offset = *pos % (device->s_quantum*device->s_qset);
 
-    if (count > (device->s_size - first))
-        count = device->s_size - first;
+    qnum= offset / device->s_quantum;
+    qoffset = offset % device->s_quantum;
 
-    for(i=0; i<num; i++)
+    qset = scull_alloc(device, num);
+
+    if(!qset || !qset->data || !qset->data[qnum] )
     {
-        qset=qset->next;
+        kdebug("%s:%d: ERROR!\n",__FUNCTION__,__LINE__);
+        return -EIO;
     }
+   
+    if (count > (device->s_quantum - qoffset))
+        count = device->s_quantum -qoffset;
 
-    temp=copy_to_user((void *)buffer, (void *)(qset->data+first), count);
+    temp=copy_to_user((void *)buffer, (void *)(qset->data[qnum]+qoffset), count);
 
     *pos+=count;
 
@@ -188,25 +203,41 @@ static ssize_t scull_device_read(struct file *filp, char *buffer, size_t count, 
 static ssize_t scull_device_write(struct file *filp, const char __user *buffer, size_t count, loff_t *pos)
 {
     struct scull_device *device = (struct scull_device *)filp->private_data;
-    struct scull_qset *pset = device->s_data;
-    int i;
+    struct scull_qset *qset; 
     size_t temp;
-    loff_t num, first; 
+    loff_t num, offset,qnum,qoffset; 
 
-    if((*pos + count) > (scull_qset * scull_quantum))
-        return -EIO;
+    kdebug("%s:%s\n",__FUNCTION__,__TIME__);
+    num = *pos / (device->s_qset*device->s_quantum);
+    offset = *pos % (device->s_qset * device->s_quantum);
+    qnum = offset / device->s_quantum;
+    qoffset = offset % device->s_quantum;
 
-    num = *pos / scull_quantum;
-    first = *pos % scull_quantum;
+    qset = scull_alloc(device, num);
 
-    if( count > (scull_quantum - first))
-        count = scull_quantum-first;
-
-    for(i=0; i<num; i++)
+    if( !qset || !qset->data)
     {
-        pset=pset->next;
+        kdebug("%s:%d: ERROR!\n",__FUNCTION__,__LINE__);
+        return -EIO;
     }
-    temp=copy_from_user( (void*)(pset->data+first), (void *)buffer, count);
+    if(!qset->data[qnum])
+    {
+        qset->data[qnum] = kmalloc(device->s_quantum,GFP_KERNEL);
+        if(!qset->data[qnum])
+        {
+
+            kdebug("%s:%d: ERROR!\n",__FUNCTION__,__LINE__);
+            return -ENOMEM;
+        } 
+        memset(qset->data[qnum],0,device->s_quantum);
+    }
+
+    if( count > device->s_quantum - qoffset)
+    {
+        count = device->s_quantum - qoffset;
+    }
+
+    temp=copy_from_user( (void*)(qset->data[qnum]+qoffset), (void *)buffer, count);
 
     *pos += count;
 
@@ -221,6 +252,7 @@ static loff_t scull_device_seek(struct file *filp, loff_t pos, int where)
 {
     struct scull_device *device = (struct scull_device *)(filp->private_data);
 
+    kdebug("%s:%s\n",__FUNCTION__,__TIME__);
     switch (where)
     {
     case SEEK_SET:
@@ -235,8 +267,6 @@ static loff_t scull_device_seek(struct file *filp, loff_t pos, int where)
 
     if(pos < 0)
         pos = 0;
-    if(pos > device->s_size)
-        pos = device->s_size;
 
     filp->f_pos= pos;
     return pos;
@@ -255,15 +285,18 @@ static struct file_operations scull_file_operations={
 static __init int scull_init(void)
 {
     int ret =0,i;
+    dev_t temp_dev;
 
+    kdebug("%s:%s\n",__FUNCTION__,__TIME__);
     if(scull_major)
     {
-        scull_dev_n=MKDEV(scull_major, 0);
-        ret = register_chrdev_region(scull_dev_n, scull_devs, SCULL_NAME);
+        temp_dev = MKDEV(scull_major, 0);
+        ret = register_chrdev_region(temp_dev, scull_devs, SCULL_NAME);
     }
     else
     {
-        ret = alloc_chrdev_region(&scull_dev_n ,0, scull_devs, SCULL_NAME);
+        ret = alloc_chrdev_region(&temp_dev ,0, scull_devs, SCULL_NAME);
+        scull_major = MAJOR(temp_dev);
     }
 
     if(ret)
@@ -296,6 +329,7 @@ static __init int scull_init(void)
 
 RELEASE_CDEV: 
     
+    kdebug("%s:%d: ERROR!\n",__FUNCTION__,__LINE__);
     for (i = 0; i<scull_devs; i++)
     {
         cdev_del( &(scull_devices[i].s_cdev));
@@ -303,6 +337,7 @@ RELEASE_CDEV:
 
 RELEASE_CHRDEV:
 
+    kdebug("%s:%d: ERROR!\n",__FUNCTION__,__LINE__);
     unregister_chrdev_region(MKDEV(scull_major,0),scull_devs);
     return -EIO;
 }
@@ -311,6 +346,7 @@ static void __exit scull_exit(void)
 {
     int i=0;
     
+    kdebug("%s:%s\n",__FUNCTION__,__TIME__);
     for( i=0; i<scull_devs; i++)
     {
         cdev_del(&(scull_devices[i].s_cdev)); 
@@ -319,7 +355,7 @@ static void __exit scull_exit(void)
     kfree(scull_devices);
     scull_devices = NULL;
 
-    unregister_chrdev_region( scull_dev_n, scull_devs);
+    unregister_chrdev_region( MKDEV(scull_major, 0), scull_devs);
 }
 
 module_init(scull_init);
