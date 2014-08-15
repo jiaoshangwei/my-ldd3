@@ -62,6 +62,7 @@ struct scull_device{
         struct scull_qset *s_data;
         size_t s_size;
         struct cdev s_cdev;
+        int i;
 };
 
 struct scull_device *scull_devices = NULL;
@@ -142,9 +143,14 @@ static int scull_device_open(struct inode *inode, struct file *filp)
     int ret =0;
 
     struct scull_device *device = container_of(inode->i_cdev,struct scull_device,s_cdev);
-    printk("%s:%s\n",__FUNCTION__,__TIME__);
+
+    char temp[40];
+    dev_t mydev = MKDEV( imajor(inode), iminor(inode));
+    print_dev_t(temp,mydev);
+    printk("%s:%s\n",__FUNCTION__,temp);
     filp->private_data= (void *)device;
 
+    
     if( (filp->f_flags & O_ACCMODE) == O_WRONLY)
     {
         ret= scull_free(device);
@@ -280,14 +286,89 @@ static struct file_operations scull_file_operations={
     .read = scull_device_read,
     .write = scull_device_write
 };
+////////////////////////////////////////////////////////////////////
+// proc
 
+static void *scull_seq_start( struct seq_file *filp, loff_t *pos)
+{
+    printk("%s:%s\n",__FUNCTION__,__TIME__);
+    if( *pos > scull_devs -1 )
+        return NULL;
+
+    return (void *)&scull_devices[*pos];
+
+}
+
+static void *scull_seq_next( struct seq_file *filp, void *buffer, loff_t *pos)
+{
+    printk("%s:%s\n",__FUNCTION__,__TIME__);
+    if(*pos+1 >=  scull_devs -1)
+    {
+        printk("scull: %s: %d: ERROR!\n", __FUNCTION__,__LINE__);
+        return NULL;
+    }
+
+    *pos += 1;
+    return (void *)&scull_devices[*pos];
+}
+
+static int scull_seq_show( struct seq_file *filp, void *buffer)
+{
+    struct scull_device *dev = (struct scull_device *)buffer;
+
+    printk("%s:%s\n",__FUNCTION__,__TIME__);
+    seq_printf(filp,"scull%d: size= %ld\n", dev->i,dev->s_size);
+
+    return 0;
+}
+
+static void scull_seq_stop( struct seq_file *filp, void *buffer)
+{
+    printk("%s:%s\n",__FUNCTION__,__TIME__);
+    return;
+}
+
+static struct seq_operations scull_seq_operations={
+    .start = scull_seq_start,
+    .stop = scull_seq_stop,
+    .show = scull_seq_show,
+    .next = scull_seq_next,
+};
+
+static int scull_seq_open(struct inode *inode, struct file *filp)
+{
+    printk("%s:%s\n",__FUNCTION__,__TIME__);
+    return seq_open(filp, &scull_seq_operations);
+}
+
+static struct file_operations scull_proc_operations={
+    .owner = THIS_MODULE,
+    .read = seq_read,
+    .llseek = seq_lseek,
+    .open = scull_seq_open,
+    .release = seq_release,
+};
+
+static void scull_proc_install(void )
+{
+    printk("%s:%s\n",__FUNCTION__,__TIME__);
+    proc_create(SCULL_NAME,0,NULL,&scull_proc_operations);
+}
+
+static void scull_proc_remove(void)
+{
+    printk("%s:%s\n",__FUNCTION__,__TIME__);
+    remove_proc_entry(SCULL_NAME,NULL);
+}
+
+//////////////////////////////////////////////////////////////
 
 static __init int scull_init(void)
 {
     int ret =0,i;
     dev_t temp_dev;
 
-    kkdebug("%s:%s\n",__FUNCTION__,__TIME__);
+    printk("%s:%s\n",__FUNCTION__,__TIME__);
     if(scull_major)
     {
         temp_dev = MKDEV(scull_major, 0);
@@ -315,6 +396,7 @@ static __init int scull_init(void)
         scull_devices[i].s_quantum = scull_quantum;
         scull_devices[i].s_size = 0;
         scull_devices[i].s_data = NULL;
+        scull_devices[i].i = i;
 
         cdev_init( &(scull_devices[i].s_cdev), &scull_file_operations);
         scull_devices[i].s_cdev.owner = THIS_MODULE;
@@ -324,6 +406,8 @@ static __init int scull_init(void)
        if(ret)
            goto RELEASE_CDEV;
     }
+
+    scull_proc_install();
 
     return 0;
 
@@ -356,6 +440,8 @@ static void __exit scull_exit(void)
     scull_devices = NULL;
 
     unregister_chrdev_region( MKDEV(scull_major, 0), scull_devs);
+
+    scull_proc_remove();
 }
 
 module_init(scull_init);
