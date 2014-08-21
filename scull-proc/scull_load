@@ -8,7 +8,7 @@ mode="664"
 if grep -q '^staff:' /etc/group; then
     group="staff"
 else
-    group="wheel"
+    group="jsw"
 fi
 
 # invoke insmod with all arguments we got
