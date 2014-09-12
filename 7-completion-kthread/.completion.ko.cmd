@@ -1,0 +1,1 @@
+cmd_/home/jsw/mywork/driver/7-completion-kthread/completion.ko := ld -r -m elf_x86_64 -T /usr/src/kernels/3.10.0-123.6.3.el7.x86_64/scripts/module-common.lds --build-id  -o /home/jsw/mywork/driver/7-completion-kthread/completion.ko /home/jsw/mywork/driver/7-completion-kthread/completion.o /home/jsw/mywork/driver/7-completion-kthread/completion.mod.o

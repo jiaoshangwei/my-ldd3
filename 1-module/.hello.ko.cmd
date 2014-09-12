@@ -1,0 +1,1 @@
+cmd_/home/jsw/mywork/driver/1-module/hello.ko := ld -r -m elf_x86_64 -T /usr/src/kernels/3.10.0-123.6.3.el7.x86_64/scripts/module-common.lds --build-id  -o /home/jsw/mywork/driver/1-module/hello.ko /home/jsw/mywork/driver/1-module/hello.o /home/jsw/mywork/driver/1-module/hello.mod.o

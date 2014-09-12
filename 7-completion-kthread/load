@@ -1,0 +1,16 @@
+#!/bin/sh
+# $Id: scull_load,v 1.4 2004/11/03 06:19:49 rubini Exp $
+module="completion"
+mode="664"
+
+
+# invoke insmod with all arguments we got
+# and use a pathname, as insmod doesn't look in . by default
+/sbin/insmod ./$module.ko $* || exit 1
+
+
+
+
+
+
+
